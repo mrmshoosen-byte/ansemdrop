@@ -1,0 +1,152 @@
+'Log files:
+C:\Users\Mohammed Sabir\Documents\Codex\2026-06-28\you-are-an-expert-full-stack\.npm-cache\_logs\2026-06-28T21_31_57_686Z-debug-0.log
+
+# npm resolution error report
+
+While resolving: @eslint/js@10.0.1
+Found: eslint@9.39.4
+node_modules/eslint
+  peer eslint@"^6.0.0 || ^7.0.0 || >=8.0.0" from @eslint-community/eslint-utils@4.9.1
+  node_modules/@eslint-community/eslint-utils
+    @eslint-community/eslint-utils@"^4.9.1" from @typescript-eslint/utils@8.62.0
+    node_modules/@typescript-eslint/utils
+      @typescript-eslint/utils@"8.62.0" from @typescript-eslint/eslint-plugin@8.62.0
+      node_modules/@typescript-eslint/eslint-plugin
+        @typescript-eslint/eslint-plugin@"8.62.0" from typescript-eslint@8.62.0
+        node_modules/typescript-eslint
+          dev typescript-eslint@"*" from the root project
+          typescript-eslint@"^8.46.0" from eslint-config-next@16.2.9
+          node_modules/eslint-config-next
+            dev eslint-config-next@"latest" from the root project
+      @typescript-eslint/utils@"8.62.0" from @typescript-eslint/type-utils@8.62.0
+      node_modules/@typescript-eslint/type-utils
+        @typescript-eslint/type-utils@"8.62.0" from @typescript-eslint/eslint-plugin@8.62.0
+        node_modules/@typescript-eslint/eslint-plugin
+          @typescript-eslint/eslint-plugin@"8.62.0" from typescript-eslint@8.62.0
+          node_modules/typescript-eslint
+            dev typescript-eslint@"*" from the root project
+            typescript-eslint@"^8.46.0" from eslint-config-next@16.2.9
+            node_modules/eslint-config-next
+              dev eslint-config-next@"latest" from the root project
+      @typescript-eslint/utils@"8.62.0" from typescript-eslint@8.62.0
+      node_modules/typescript-eslint
+        dev typescript-eslint@"*" from the root project
+        typescript-eslint@"^8.46.0" from eslint-config-next@16.2.9
+        node_modules/eslint-config-next
+          dev eslint-config-next@"latest" from the root project
+    @eslint-community/eslint-utils@"^4.8.0" from eslint@9.39.4
+  peer eslint@"^8.57.0 || ^9.0.0 || ^10.0.0" from @typescript-eslint/eslint-plugin@8.62.0
+  node_modules/@typescript-eslint/eslint-plugin
+    @typescript-eslint/eslint-plugin@"8.62.0" from typescript-eslint@8.62.0
+    node_modules/typescript-eslint
+      dev typescript-eslint@"*" from the root project
+      typescript-eslint@"^8.46.0" from eslint-config-next@16.2.9
+      node_modules/eslint-config-next
+        dev eslint-config-next@"latest" from the root project
+  peer eslint@"^8.57.0 || ^9.0.0 || ^10.0.0" from @typescript-eslint/parser@8.62.0
+  node_modules/@typescript-eslint/parser
+    peer @typescript-eslint/parser@"^8.62.0" from @typescript-eslint/eslint-plugin@8.62.0
+    node_modules/@typescript-eslint/eslint-plugin
+      @typescript-eslint/eslint-plugin@"8.62.0" from typescript-eslint@8.62.0
+      node_modules/typescript-eslint
+        dev typescript-eslint@"*" from the root project
+        typescript-eslint@"^8.46.0" from eslint-config-next@16.2.9
+        node_modules/eslint-config-next
+          dev eslint-config-next@"latest" from the root project
+    @typescript-eslint/parser@"8.62.0" from typescript-eslint@8.62.0
+    node_modules/typescript-eslint
+      dev typescript-eslint@"*" from the root project
+      typescript-eslint@"^8.46.0" from eslint-config-next@16.2.9
+      node_modules/eslint-config-next
+        dev eslint-config-next@"latest" from the root project
+  peer eslint@"^8.57.0 || ^9.0.0 || ^10.0.0" from @typescript-eslint/type-utils@8.62.0
+  node_modules/@typescript-eslint/type-utils
+    @typescript-eslint/type-utils@"8.62.0" from @typescript-eslint/eslint-plugin@8.62.0
+    node_modules/@typescript-eslint/eslint-plugin
+      @typescript-eslint/eslint-plugin@"8.62.0" from typescript-eslint@8.62.0
+      node_modules/typescript-eslint
+        dev typescript-eslint@"*" from the root project
+        typescript-eslint@"^8.46.0" from eslint-config-next@16.2.9
+        node_modules/eslint-config-next
+          dev eslint-config-next@"latest" from the root project
+  peer eslint@"^8.57.0 || ^9.0.0 || ^10.0.0" from @typescript-eslint/utils@8.62.0
+  node_modules/@typescript-eslint/utils
+    @typescript-eslint/utils@"8.62.0" from @typescript-eslint/eslint-plugin@8.62.0
+    node_modules/@typescript-eslint/eslint-plugin
+      @typescript-eslint/eslint-plugin@"8.62.0" from typescript-eslint@8.62.0
+      node_modules/typescript-eslint
+        dev typescript-eslint@"*" from the root project
+        typescript-eslint@"^8.46.0" from eslint-config-next@16.2.9
+        node_modules/eslint-config-next
+          dev eslint-config-next@"latest" from the root project
+    @typescript-eslint/utils@"8.62.0" from @typescript-eslint/type-utils@8.62.0
+    node_modules/@typescript-eslint/type-utils
+      @typescript-eslint/type-utils@"8.62.0" from @typescript-eslint/eslint-plugin@8.62.0
+      node_modules/@typescript-eslint/eslint-plugin
+        @typescript-eslint/eslint-plugin@"8.62.0" from typescript-eslint@8.62.0
+        node_modules/typescript-eslint
+          dev typescript-eslint@"*" from the root project
+          typescript-eslint@"^8.46.0" from eslint-config-next@16.2.9
+          node_modules/eslint-config-next
+            dev eslint-config-next@"latest" from the root project
+    @typescript-eslint/utils@"8.62.0" from typescript-eslint@8.62.0
+    node_modules/typescript-eslint
+      dev typescript-eslint@"*" from the root project
+      typescript-eslint@"^8.46.0" from eslint-config-next@16.2.9
+      node_modules/eslint-config-next
+        dev eslint-config-next@"latest" from the root project
+  peer eslint@">=9.0.0" from eslint-config-next@16.2.9
+  node_modules/eslint-config-next
+    dev eslint-config-next@"latest" from the root project
+  peer eslint@"*" from eslint-import-resolver-typescript@3.10.1
+  node_modules/eslint-import-resolver-typescript
+    eslint-import-resolver-typescript@"^3.5.2" from eslint-config-next@16.2.9
+    node_modules/eslint-config-next
+      dev eslint-config-next@"latest" from the root project
+  peer eslint@"^2 || ^3 || ^4 || ^5 || ^6 || ^7.2.0 || ^8 || ^9" from eslint-plugin-import@2.32.0
+  node_modules/eslint-plugin-import
+    eslint-plugin-import@"^2.32.0" from eslint-config-next@16.2.9
+    node_modules/eslint-config-next
+      dev eslint-config-next@"latest" from the root project
+    peerOptional eslint-plugin-import@"*" from eslint-import-resolver-typescript@3.10.1
+    node_modules/eslint-import-resolver-typescript
+      eslint-import-resolver-typescript@"^3.5.2" from eslint-config-next@16.2.9
+      node_modules/eslint-config-next
+        dev eslint-config-next@"latest" from the root project
+  peer eslint@"^3 || ^4 || ^5 || ^6 || ^7 || ^8 || ^9" from eslint-plugin-jsx-a11y@6.10.2
+  node_modules/eslint-plugin-jsx-a11y
+    eslint-plugin-jsx-a11y@"^6.10.0" from eslint-config-next@16.2.9
+    node_modules/eslint-config-next
+      dev eslint-config-next@"latest" from the root project
+  peer eslint@"^3 || ^4 || ^5 || ^6 || ^7 || ^8 || ^9.7" from eslint-plugin-react@7.37.5
+  node_modules/eslint-plugin-react
+    eslint-plugin-react@"^7.37.0" from eslint-config-next@16.2.9
+    node_modules/eslint-config-next
+      dev eslint-config-next@"latest" from the root project
+  peer eslint@"^3.0.0 || ^4.0.0 || ^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0-0 || ^9.0.0 || ^10.0.0" from eslint-plugin-react-hooks@7.1.1
+  node_modules/eslint-plugin-react-hooks
+    eslint-plugin-react-hooks@"^7.0.0" from eslint-config-next@16.2.9
+    node_modules/eslint-config-next
+      dev eslint-config-next@"latest" from the root project
+  dev eslint@"^9.17.0" from the root project
+  peer eslint@"^8.57.0 || ^9.0.0 || ^10.0.0" from typescript-eslint@8.62.0
+  node_modules/typescript-eslint
+    dev typescript-eslint@"*" from the root project
+    typescript-eslint@"^8.46.0" from eslint-config-next@16.2.9
+    node_modules/eslint-config-next
+      dev eslint-config-next@"latest" from the root project
+
+Could not resolve dependency:
+peerOptional eslint@"^10.0.0" from @eslint/js@10.0.1
+node_modules/@eslint/js
+  dev @eslint/js@"*" from the root project
+
+Conflicting peer dependency: eslint@10.6.0
+node_modules/eslint
+  peerOptional eslint@"^10.0.0" from @eslint/js@10.0.1
+  node_modules/@eslint/js
+    dev @eslint/js@"*" from the root project
+
+Fix the upstream dependency conflict, or retry
+this command with --force or --legacy-peer-deps
+to accept an incorrect (and potentially broken) dependency resolution.
