@@ -9,7 +9,7 @@ import {
 /**
  * ENV (IMPORTANT FIX)
  */
-const HELIUS_API_KEY = process.env.HELIUS_API_KEY!;
+const HELIUS_RPC_URL = process.env.HELIUS_RPC_URL!;
 
 /**
  * PostgreSQL pool
@@ -66,10 +66,18 @@ export type HeliusTransaction = any;
 export async function getEnhancedTransactions(
   wallet: string,
   before?: string
-): Promise<any[]> {
-  const res = await fetch(HELIUS_API_KEY, {
+) {
+  const HELIUS_RPC_URL = process.env.HELIUS_RPC_URL;
+
+  if (!HELIUS_RPC_URL) {
+    throw new Error("Missing HELIUS_RPC_URL in environment variables");
+  }
+
+  const res = await fetch(HELIUS_RPC_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify({
       jsonrpc: "2.0",
       id: 1,
@@ -78,16 +86,18 @@ export async function getEnhancedTransactions(
         wallet,
         {
           limit: 50,
-          before,
+          before: before ?? null,
         },
       ],
     }),
   });
 
   const data = await res.json();
-  return data?.result ?? [];
-}
 
+  if (!data?.result) return [];
+
+  return data.result;
+}
 /**
  * Normalize amount safely
  */
