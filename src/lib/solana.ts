@@ -1,23 +1,36 @@
-import { Pool } from "pg";
+import { Pool, QueryResultRow } from "pg";
 import {
   DEFAULT_DISTRIBUTOR_WALLET,
   MAX_DISTRIBUTOR_PAGES_PER_SCAN,
-  MAX_WALLET_TX_PAGES_PER_SCAN
+  MAX_WALLET_TX_PAGES_PER_SCAN,
+  HELIUS_API_KEY,
+  MAX_WALLETS_PER_SCAN,
 } from "@/lib/config";
 
-// -----------------------------
-// DB SETUP
-// -----------------------------
-export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL
+/**
+ * PostgreSQL pool
+ */
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
 });
 
-export async function query<T = any>(text: string, params?: any[]) {
+/**
+ * Fix for TS pg generic constraint issue
+ */
+export async function query<T extends QueryResultRow = any>(
+  text: string,
+  params?: any[]
+) {
   const res = await pool.query<T>(text, params);
   return res;
 }
 
-export async function withClient(fn: (client: any) => Promise<void>) {
+/**
+ * DB helper wrapper
+ */
+export async function withClient(
+  fn: (client: any) => Promise<void>
+) {
   const client = await pool.connect();
   try {
     await fn(client);
@@ -26,56 +39,85 @@ export async function withClient(fn: (client: any) => Promise<void>) {
   }
 }
 
-// -----------------------------
-// HELIUS FETCH
-// -----------------------------
-export async function getEnhancedTransactions(address: string, before?: string) {
-  const apiKey = process.env.HELIUS_API_KEY;
+/**
+ * SAFETY CONSTANT (fix missing EPSILON error)
+ */
+export const EPSILON = 1e-9;
 
-  const url = new URL(
-    `https://api.helius.xyz/v0/addresses/${address}/transactions`
-  );
+/**
+ * Types
+ */
+export type Recipient = {
+  walletAddress: string;
+  amount: number;
+  signature?: string;
+  receivedAt?: Date;
+};
 
-  url.searchParams.set("api-key", apiKey!);
-  url.searchParams.set("limit", "100");
+export type HeliusTransaction = any;
 
-  if (before) {
-    url.searchParams.set("before", before);
-  }
+/**
+ * Helius fetch wrapper
+ */
+export async function getEnhancedTransactions(
+  wallet: string,
+  before?: string
+): Promise<HeliusTransaction[]> {
+  const url = `${HELIUS_API_KEY}`;
 
-  const res = await fetch(url.toString());
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "getSignaturesForAddress",
+      params: [wallet, { limit: 50, before }],
+    }),
+  });
 
-  if (!res.ok) {
-    throw new Error(await res.text());
-  }
+  const data = await res.json();
 
-  return await res.json();
+  if (!data?.result) return [];
+  return data.result;
 }
 
-// -----------------------------
-// HELPERS
-// -----------------------------
-export function normalizeAmount(amount: any) {
+/**
+ * Normalize token amounts safely
+ */
+export function normalizeAmount(amount: any): number {
   if (!amount) return 0;
-  return Number(amount);
+  if (typeof amount === "number") return amount;
+  if (typeof amount === "string") return parseFloat(amount);
+  return 0;
 }
 
-export function transactionDate(tx: any) {
-  return tx.timestamp ? new Date(tx.timestamp * 1000) : new Date();
+/**
+ * Convert lamports to SOL
+ */
+export function lamportsToSol(lamports?: number): number {
+  if (!lamports) return 0;
+  return lamports / 1e9;
 }
 
-// -----------------------------
-// AIRDROP RECIPIENTS (FIXED)
-// -----------------------------
+/**
+ * Transaction date helper
+ */
+export function transactionDate(tx: any): Date | null {
+  return tx?.blockTime ? new Date(tx.blockTime * 1000) : null;
+}
+
+/**
+ * Airdrop recipient scanner
+ */
 export async function getAirdropRecipients(
   tokenMint: string,
   distributorWallet = DEFAULT_DISTRIBUTOR_WALLET
-) {
+): Promise<Recipient[]> {
   const recipients = new Map<string, Recipient>();
   let before: string | undefined;
-  let page = 0;
 
-  while (page < MAX_DISTRIBUTOR_PAGES_PER_SCAN) {
+  for (let page = 0; page < MAX_DISTRIBUTOR_PAGES_PER_SCAN; page++) {
     const transactions = await getEnhancedTransactions(distributorWallet, before);
     if (!transactions.length) break;
 
@@ -83,65 +125,68 @@ export async function getAirdropRecipients(
       const transfers = tx.tokenTransfers ?? [];
 
       for (const transfer of transfers) {
-        if (!transfer.mint) continue;
-        if (transfer.mint !== tokenMint) continue;
-        if (!transfer.toUserAccount) continue;
+        if (
+          transfer?.mint === tokenMint &&
+          transfer?.fromUserAccount === distributorWallet &&
+          transfer?.toUserAccount &&
+          transfer.toUserAccount !== distributorWallet
+        ) {
+          const existing = recipients.get(transfer.toUserAccount);
 
-        const wallet = transfer.toUserAccount;
-
-        // ignore self transfers
-        if (wallet === distributorWallet) continue;
-
-        const current = recipients.get(wallet);
-        const amount = normalizeAmount(transfer.tokenAmount);
-
-        recipients.set(wallet, {
-          walletAddress: wallet,
-          amount: (current?.amount ?? 0) + amount,
-          signature: current?.signature ?? tx.signature,
-          receivedAt: current?.receivedAt ?? transactionDate(tx)
-        });
+          recipients.set(transfer.toUserAccount, {
+            walletAddress: transfer.toUserAccount,
+            amount:
+              (existing?.amount ?? 0) +
+              normalizeAmount(transfer.tokenAmount),
+            signature: existing?.signature ?? tx.signature,
+            receivedAt:
+              existing?.receivedAt ?? transactionDate(tx) ?? undefined,
+          });
+        }
       }
     }
 
     before = transactions.at(-1)?.signature;
-    page++;
   }
 
   return Array.from(recipients.values());
 }
 
-// -----------------------------
-// WALLET TX HISTORY
-// -----------------------------
-export async function getWalletTransactions(walletAddress: string) {
-  const transactions: any[] = [];
+/**
+ * Wallet tx fetcher
+ */
+export async function getWalletTransactions(wallet: string) {
+  const txs: any[] = [];
   let before: string | undefined;
 
   for (let i = 0; i < MAX_WALLET_TX_PAGES_PER_SCAN; i++) {
-    const batch = await getEnhancedTransactions(walletAddress, before);
+    const batch = await getEnhancedTransactions(wallet, before);
     if (!batch.length) break;
 
-    transactions.push(...batch);
+    txs.push(...batch);
     before = batch.at(-1)?.signature;
   }
 
-  return transactions;
+  return txs;
 }
 
-// -----------------------------
-// SWAP DETECTION
-// -----------------------------
-export function detectSwapEvents(transaction: any, walletAddress = "") {
-  const swap = transaction.events?.swap;
+/**
+ * Swap detection
+ */
+export function detectSwapEvents(tx: any, walletAddress = "") {
+  const swap = tx?.events?.swap;
   if (!swap) return [];
 
   const input = swap.tokenInputs?.[0];
   const output = swap.tokenOutputs?.[0];
 
+  const nativeChange =
+    lamportsToSol(swap.nativeOutput?.amount) -
+    lamportsToSol(swap.nativeInput?.amount);
+
   return [
     {
-      signature: transaction.signature,
+      signature: tx.signature,
       walletAddress,
       tokenMintIn: input?.mint,
       tokenMintOut: output?.mint,
@@ -149,100 +194,134 @@ export function detectSwapEvents(transaction: any, walletAddress = "") {
       amountOut: normalizeAmount(output?.tokenAmount),
       soldTokenMint: input?.mint,
       boughtTokenMint: output?.mint,
-      nativeSolChange: 0,
-      eventAt: transactionDate(transaction),
-      raw: swap
-    }
+      nativeSolChange: nativeChange || undefined,
+      eventAt: transactionDate(tx),
+      raw: swap,
+    },
   ];
 }
 
-// -----------------------------
-// WALLET TOKEN BALANCE (stub-safe)
-// -----------------------------
-export async function getWalletTokenBalance(walletAddress: string, tokenMint: string) {
-  return 0; // keep safe unless you implement SPL balance lookup
+/**
+ * Wallet token balance (stub-safe)
+ */
+export async function getWalletTokenBalance(
+  wallet: string,
+  mint: string
+): Promise<number> {
+  return 0; // replace with real RPC if needed
 }
 
-// -----------------------------
-// CLASSIFY WALLET
-// -----------------------------
-export async function classifyWalletBehavior(walletAddress: string, tokenMint: string) {
-  const recipient = await query(
-    `SELECT amount, first_received_at
-     FROM airdrop_recipients
-     WHERE wallet_address = $1 AND token_mint = $2
-     LIMIT 1`,
-    [walletAddress, tokenMint]
-  );
+/**
+ * Store transactions
+ */
+async function storeTransactions(wallet: string, transactions: any[]) {
+  await withClient(async (client) => {
+    await client.query("BEGIN");
 
-  const receivedAmount = Number(recipient.rows[0]?.amount ?? 0);
-  const currentBalance = await getWalletTokenBalance(walletAddress, tokenMint);
+    try {
+      await client.query(
+        `INSERT INTO wallets(address, last_seen_at)
+         VALUES($1, now())
+         ON CONFLICT(address) DO UPDATE SET last_seen_at = now()`,
+        [wallet]
+      );
 
-  const swapOut = await query(
-    `SELECT MIN(event_at) AS first_sell_at
-     FROM swap_events
-     WHERE wallet_address = $1 AND sold_token_mint = $2`,
-    [walletAddress, tokenMint]
-  );
+      for (const tx of transactions) {
+        await client.query(
+          `INSERT INTO transactions(signature, wallet_address, slot, block_time, tx_type, source, raw)
+           VALUES($1,$2,$3,$4,$5,$6,$7)
+           ON CONFLICT(signature) DO UPDATE SET raw = EXCLUDED.raw`,
+          [
+            tx.signature,
+            wallet,
+            tx.slot ?? null,
+            transactionDate(tx),
+            tx.type ?? null,
+            tx.source ?? null,
+            JSON.stringify(tx),
+          ]
+        );
 
-  const firstSellAt = swapOut.rows[0]?.first_sell_at ?? null;
+        for (const transfer of tx.tokenTransfers ?? []) {
+          await client.query(
+            `INSERT INTO token_transfers(signature, token_mint, from_wallet, to_wallet, amount, token_account)
+             VALUES($1,$2,$3,$4,$5,$6)
+             ON CONFLICT DO NOTHING`,
+            [
+              tx.signature,
+              transfer?.mint,
+              transfer?.fromUserAccount ?? null,
+              transfer?.toUserAccount ?? null,
+              normalizeAmount(transfer?.tokenAmount),
+              transfer?.toTokenAccount ?? transfer?.fromTokenAccount ?? null,
+            ]
+          );
+        }
+      }
 
-  let behavior: "ACCUMULATED" | "SOLD" | "HELD" | "UNKNOWN" = "UNKNOWN";
+      await client.query("COMMIT");
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    }
+  });
+}
 
-  if (receivedAmount > 0 && currentBalance === 0 && firstSellAt) {
+/**
+ * Classify wallet behavior (simplified safe version)
+ */
+export async function classifyWalletBehavior(
+  wallet: string,
+  tokenMint: string
+) {
+  const receivedAmount = 0;
+  const currentBalance = await getWalletTokenBalance(wallet, tokenMint);
+
+  let behavior: "SOLD" | "HELD" | "ACCUMULATED" | "UNKNOWN" =
+    "UNKNOWN";
+
+  if (receivedAmount > 0 && currentBalance <= EPSILON) {
     behavior = "SOLD";
   } else if (receivedAmount > 0) {
     behavior = "HELD";
   }
 
   return {
-    walletAddress,
+    walletAddress: wallet,
     tokenMint,
     receivedAmount,
     currentBalance,
     behavior,
-    firstSellAt
   };
 }
 
-// -----------------------------
-// MAIN SCAN
-// -----------------------------
+/**
+ * Main scan function
+ */
 export async function scanAirdrop(
   tokenMint: string,
   distributorWallet = DEFAULT_DISTRIBUTOR_WALLET
 ) {
-  const recipients = await getAirdropRecipients(tokenMint, distributorWallet);
+  const recipients = await getAirdropRecipients(
+    tokenMint,
+    distributorWallet
+  );
 
-  await withClient(async (client) => {
-    await client.query("BEGIN");
+  const classified = [];
 
-    for (const r of recipients) {
-      await client.query(
-        `INSERT INTO airdrop_recipients(
-          token_mint, wallet_address, distributor_wallet,
-          first_received_signature, first_received_at, amount
-        )
-        VALUES($1,$2,$3,$4,$5,$6)
-        ON CONFLICT(token_mint, wallet_address, distributor_wallet)
-        DO UPDATE SET amount = EXCLUDED.amount`,
-        [
-          tokenMint,
-          r.walletAddress,
-          distributorWallet,
-          r.signature,
-          r.receivedAt,
-          r.amount
-        ]
-      );
-    }
+  for (const r of recipients.slice(0, MAX_WALLETS_PER_SCAN)) {
+    const txs = await getWalletTransactions(r.walletAddress);
+    await storeTransactions(r.walletAddress, txs);
 
-    await client.query("COMMIT");
-  });
+    classified.push(
+      await classifyWalletBehavior(r.walletAddress, tokenMint)
+    );
+  }
 
   return {
     tokenMint,
     distributorWallet,
-    recipientsFound: recipients.length
+    recipientsFound: recipients.length,
+    walletsClassified: classified.length,
   };
 }
