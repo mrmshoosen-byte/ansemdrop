@@ -37,24 +37,41 @@ async function heliusFetch(url: string, options?: any) {
  * This replaces broken tokenTransfers logic
  */
 export async function getAirdropRecipients(tokenMint: string) {
-  const data = await heliusFetch(
-    `https://api.helius.xyz/v0/token-accounts?api-key=${HELIUS_API_KEY}`,
+  const res = await fetch(
+    `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY}`,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        mintAccounts: [tokenMint],
+        jsonrpc: "2.0",
+        id: 1,
+        method: "getTokenAccounts",
+        params: {
+          mint: tokenMint,
+          limit: 1000,
+          options: {
+            showZeroBalance: false,
+          },
+        },
       }),
     }
   );
 
-  if (!Array.isArray(data)) return [];
+  const text = await res.text();
 
-  return data.map((acc: any) => ({
+  if (!res.ok) {
+    throw new Error(`Helius error: ${text}`);
+  }
+
+  const json = JSON.parse(text);
+
+  const accounts = json?.result?.token_accounts ?? [];
+
+  return accounts.map((acc: any) => ({
     walletAddress: acc.owner,
-    amount: Number(acc.amount ?? 0),
+    amount: acc.amount,
   }));
 }
 
