@@ -54,27 +54,32 @@ export async function getEnhancedTransactions(
   wallet: string,
   before?: string
 ) {
-  const res = await fetch(
-    `https://api.helius.xyz/v0/addresses/${wallet}/transactions?api-key=${HELIUS_API_KEY}`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        limit: 50,
-        before: before ?? undefined,
-      }),
-    }
+  const url = new URL(
+    `https://api.helius.xyz/v0/addresses/${wallet}/transactions`
   );
+
+  url.searchParams.append(
+    "api-key",
+    process.env.HELIUS_API_KEY!
+  );
+
+  if (before) {
+    url.searchParams.append("before", before);
+  }
+
+  url.searchParams.append("limit", "50");
+
+  const res = await fetch(url.toString(), {
+    method: "GET",
+  });
 
   const text = await res.text();
 
-if (!res.ok) {
-  throw new Error(`Helius error: ${text}`);
-}
+  if (!res.ok) {
+    throw new Error(`Helius error: ${text}`);
+  }
 
-const data = JSON.parse(text);
+  const data = JSON.parse(text);
 
   if (!Array.isArray(data)) return [];
 
