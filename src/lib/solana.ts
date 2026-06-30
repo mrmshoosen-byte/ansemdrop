@@ -103,51 +103,36 @@ export function transactionDate(tx: any): Date | null {
 /**
  * STEP 1 — GET RECIPIENTS (FIXED LOGIC)
  */
-export async function getAirdropRecipients(
-  tokenMint: string,
-  distributorWallet = DEFAULT_DISTRIBUTOR_WALLET
-): Promise<Recipient[]> {
-  const recipients = new Map<string, Recipient>();
-
-  let before: string | undefined;
-
-  for (let i = 0; i < MAX_DISTRIBUTOR_PAGES_PER_SCAN; i++) {
-    const txs = await getEnhancedTransactions(distributorWallet, before);
-    if (!txs.length) break;
-
-    for (const tx of txs) {
-      const transfers = tx.tokenTransfers ?? [];
-
-      for (const t of transfers) {
-        if (!t?.mint) continue;
-
-        // 🔥 FIXED FILTER (was too strict before)
-        const isRelevant =
-          t.mint === tokenMint &&
-          (t.fromUserAccount === distributorWallet ||
-            tx.feePayer === distributorWallet);
-
-        if (!isRelevant) continue;
-
-        if (t?.toUserAccount && t.toUserAccount !== distributorWallet) {
-          const existing = recipients.get(t.toUserAccount);
-
-          recipients.set(t.toUserAccount, {
-            walletAddress: t.toUserAccount,
-            amount:
-              (existing?.amount ?? 0) + normalizeAmount(t.tokenAmount),
-            signature: existing?.signature ?? tx.signature,
-            receivedAt:
-              existing?.receivedAt ?? transactionDate(tx) ?? undefined,
-          });
-        }
-      }
+export async function getAirdropRecipients(tokenMint: string) {
+  const res = await fetch(
+    `https://api.helius.xyz/v0/token-accounts?api-key=${process.env.HELIUS_API_KEY}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        mintAccounts: [tokenMint],
+      }),
     }
+  );
 
-    before = txs.at(-1)?.signature;
+  const text = await res.text();
+
+  if (!res.ok) {
+    throw new Error(`Helius error: ${text}`);
   }
 
-  return Array.from(recipients.values());
+  const data = JSON.parse(text);
+
+  if (!Array.isArray(data)) return [];
+
+  const recipients = data.map((acc: any) => ({
+    walletAddress: acc.owner,
+    amount: acc.amount,
+  }));
+
+  return recipients;
 }
 
 /**
