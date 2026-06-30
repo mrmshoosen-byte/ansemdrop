@@ -68,7 +68,13 @@ export async function getEnhancedTransactions(
     }
   );
 
-  const data = await res.json();
+  const text = await res.text();
+
+if (!res.ok) {
+  throw new Error(`Helius error: ${text}`);
+}
+
+const data = JSON.parse(text);
 
   if (!Array.isArray(data)) return [];
 
