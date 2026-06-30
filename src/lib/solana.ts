@@ -252,10 +252,7 @@ export async function scanAirdrop(
   tokenMint: string,
   distributorWallet = DEFAULT_DISTRIBUTOR_WALLET
 ) {
-  const recipients = await getAirdropRecipients(
-    tokenMint,
-    distributorWallet
-  );
+  const recipients = await getAirdropRecipients(tokenMint);
 
   const limited = recipients.slice(0, MAX_WALLETS_PER_SCAN);
 
