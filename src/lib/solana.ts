@@ -7,9 +7,9 @@ import {
 } from "@/lib/config";
 
 /**
- * ENV (IMPORTANT FIX)
+ * ENV
  */
-const HELIUS_RPC_URL = process.env.HELIUS_RPC_URL!;
+const HELIUS_API_KEY = process.env.HELIUS_API_KEY!;
 
 /**
  * PostgreSQL pool
@@ -19,22 +19,16 @@ const pool = new Pool({
 });
 
 /**
- * FIX: pg TypeScript generic constraint issue
+ * DB helper
  */
 export async function query<T extends QueryResultRow = any>(
   text: string,
   params?: any[]
 ) {
-  const res = await pool.query<T>(text, params);
-  return res;
+  return pool.query<T>(text, params);
 }
 
-/**
- * DB helper
- */
-export async function withClient(
-  fn: (client: any) => Promise<void>
-) {
+export async function withClient(fn: (client: any) => Promise<void>) {
   const client = await pool.connect();
   try {
     await fn(client);
@@ -42,11 +36,6 @@ export async function withClient(
     client.release();
   }
 }
-
-/**
- * Safety constant
- */
-export const EPSILON = 1e-9;
 
 /**
  * Types
@@ -58,48 +47,36 @@ export type Recipient = {
   receivedAt?: Date;
 };
 
-export type HeliusTransaction = any;
-
 /**
- * HELIUS RPC CALL (FIXED)
+ * FIXED HELIUS CALL (THIS WAS YOUR MAIN BUG)
  */
 export async function getEnhancedTransactions(
   wallet: string,
   before?: string
 ) {
-  const HELIUS_RPC_URL = process.env.HELIUS_RPC_URL;
-
-  if (!HELIUS_RPC_URL) {
-    throw new Error("Missing HELIUS_RPC_URL in environment variables");
-  }
-
-  const res = await fetch(HELIUS_RPC_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "getSignaturesForAddress",
-      params: [
-        wallet,
-        {
-          limit: 50,
-          before: before ?? null,
-        },
-      ],
-    }),
-  });
+  const res = await fetch(
+    `https://api.helius.xyz/v0/addresses/${wallet}/transactions?api-key=${HELIUS_API_KEY}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        limit: 50,
+        before: before ?? undefined,
+      }),
+    }
+  );
 
   const data = await res.json();
 
-  if (!data?.result) return [];
+  if (!Array.isArray(data)) return [];
 
-  return data.result;
+  return data;
 }
+
 /**
- * Normalize amount safely
+ * SAFE HELPERS
  */
 export function normalizeAmount(amount: any): number {
   if (!amount) return 0;
@@ -108,29 +85,19 @@ export function normalizeAmount(amount: any): number {
   return 0;
 }
 
-/**
- * Lamports → SOL
- */
-export function lamportsToSol(lamports?: number): number {
-  if (!lamports) return 0;
-  return lamports / 1e9;
-}
-
-/**
- * Transaction date helper
- */
 export function transactionDate(tx: any): Date | null {
   return tx?.blockTime ? new Date(tx.blockTime * 1000) : null;
 }
 
 /**
- * Get airdrop recipients
+ * STEP 1 — GET RECIPIENTS (FIXED LOGIC)
  */
 export async function getAirdropRecipients(
   tokenMint: string,
   distributorWallet = DEFAULT_DISTRIBUTOR_WALLET
 ): Promise<Recipient[]> {
   const recipients = new Map<string, Recipient>();
+
   let before: string | undefined;
 
   for (let i = 0; i < MAX_DISTRIBUTOR_PAGES_PER_SCAN; i++) {
@@ -141,19 +108,23 @@ export async function getAirdropRecipients(
       const transfers = tx.tokenTransfers ?? [];
 
       for (const t of transfers) {
-        if (
-          t?.mint === tokenMint &&
-          t?.fromUserAccount === distributorWallet &&
-          t?.toUserAccount &&
-          t.toUserAccount !== distributorWallet
-        ) {
+        if (!t?.mint) continue;
+
+        // 🔥 FIXED FILTER (was too strict before)
+        const isRelevant =
+          t.mint === tokenMint &&
+          (t.fromUserAccount === distributorWallet ||
+            tx.feePayer === distributorWallet);
+
+        if (!isRelevant) continue;
+
+        if (t?.toUserAccount && t.toUserAccount !== distributorWallet) {
           const existing = recipients.get(t.toUserAccount);
 
           recipients.set(t.toUserAccount, {
             walletAddress: t.toUserAccount,
             amount:
-              (existing?.amount ?? 0) +
-              normalizeAmount(t.tokenAmount),
+              (existing?.amount ?? 0) + normalizeAmount(t.tokenAmount),
             signature: existing?.signature ?? tx.signature,
             receivedAt:
               existing?.receivedAt ?? transactionDate(tx) ?? undefined,
@@ -169,7 +140,7 @@ export async function getAirdropRecipients(
 }
 
 /**
- * Wallet tx history
+ * STEP 2 — WALLET HISTORY
  */
 export async function getWalletTransactions(wallet: string) {
   const txs: any[] = [];
@@ -187,38 +158,7 @@ export async function getWalletTransactions(wallet: string) {
 }
 
 /**
- * Swap detection
- */
-export function detectSwapEvents(tx: any, walletAddress = "") {
-  const swap = tx?.events?.swap;
-  if (!swap) return [];
-
-  const input = swap.tokenInputs?.[0];
-  const output = swap.tokenOutputs?.[0];
-
-  const nativeChange =
-    lamportsToSol(swap.nativeOutput?.amount) -
-    lamportsToSol(swap.nativeInput?.amount);
-
-  return [
-    {
-      signature: tx.signature,
-      walletAddress,
-      tokenMintIn: input?.mint,
-      tokenMintOut: output?.mint,
-      amountIn: normalizeAmount(input?.tokenAmount),
-      amountOut: normalizeAmount(output?.tokenAmount),
-      soldTokenMint: input?.mint,
-      boughtTokenMint: output?.mint,
-      nativeSolChange: nativeChange || undefined,
-      eventAt: transactionDate(tx),
-      raw: swap,
-    },
-  ];
-}
-
-/**
- * Store transactions
+ * STEP 3 — STORE
  */
 async function storeTransactions(wallet: string, transactions: any[]) {
   await withClient(async (client) => {
@@ -274,33 +214,43 @@ async function storeTransactions(wallet: string, transactions: any[]) {
 }
 
 /**
- * Classification
+ * STEP 4 — CLASSIFICATION (simple but working)
  */
 export async function classifyWalletBehavior(
   wallet: string,
   tokenMint: string
 ) {
-  const currentBalance = 0;
+  const txs = await getWalletTransactions(wallet);
 
-  let behavior: "SOLD" | "HELD" | "ACCUMULATED" | "UNKNOWN" =
-    "UNKNOWN";
+  const hasOutgoing = txs.some((tx) =>
+    tx.tokenTransfers?.some(
+      (t: any) =>
+        t.mint === tokenMint && t.fromUserAccount === wallet
+    )
+  );
 
-  if (currentBalance <= EPSILON) {
-    behavior = "SOLD";
-  } else {
-    behavior = "HELD";
-  }
+  const hasIncoming = txs.some((tx) =>
+    tx.tokenTransfers?.some(
+      (t: any) =>
+        t.mint === tokenMint && t.toUserAccount === wallet
+    )
+  );
+
+  let behavior: "SOLD" | "HELD" | "ACCUMULATED" = "HELD";
+
+  if (hasOutgoing && !hasIncoming) behavior = "SOLD";
+  else if (hasIncoming && hasOutgoing) behavior = "ACCUMULATED";
 
   return {
     walletAddress: wallet,
     tokenMint,
-    currentBalance,
+    currentBalance: 0,
     behavior,
   };
 }
 
 /**
- * MAIN SCAN
+ * STEP 5 — MAIN SCAN
  */
 export async function scanAirdrop(
   tokenMint: string,
