@@ -259,31 +259,15 @@ export async function scanAirdrop(
 ) {
   const recipients = await getAirdropRecipients(tokenMint, distributor);
 
-  const existing = await query(
-  `SELECT wallet_address FROM airdrop_recipients WHERE token_mint = $1 AND distributor_wallet = $2`,
-  [tokenMint, distributor]
-);
+  for (const r of recipients.slice(0, MAX_WALLETS_PER_SCAN)) {
+    await storeRecipient(tokenMint, distributor, r);
+  }
 
-const seen = new Set(existing.rows.map((r: any) => r.wallet_address));
-
-const limited = recipients.filter(
-  (r) => !seen.has(r.walletAddress)
-).slice(0, MAX_WALLETS_PER_SCAN);
-
- for (const r of limited) {
-  await storeRecipient(tokenMint, distributor, r);
-
-  const txs = await getWalletTransactions(r.walletAddress);
-  await storeTransactions(r.walletAddress, txs);
-
-  await classifyWallet(r.walletAddress, tokenMint);
-
-  await new Promise((res) => setTimeout(res, 250)); // 👈 IMPORTANT
-}
   return {
     tokenMint,
     distributor,
     recipientsFound: recipients.length,
-    walletsClassified: limited.length,
+    walletsClassified: 0,
+    message: "Recipients saved. Run analysis separately."
   };
 }
