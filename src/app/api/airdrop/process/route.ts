@@ -1,27 +1,73 @@
 import { NextResponse } from "next/server";
-import { query } from "@/lib/solana";
-import {
-  getWalletTransactions,
-  classifyWallet
-} from "@/lib/solana";
+import { Pool } from "pg";
+import { getWalletTransactions } from "@/lib/solana";
+
+export const runtime = "nodejs";
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
+
+async function query(text: string, params?: any[]) {
+  return pool.query(text, params);
+}
 
 export async function POST() {
-  const { rows } = await query(
-    `SELECT wallet_address, token_mint
-     FROM airdrop_recipients
-     WHERE wallet_address NOT IN (
-       SELECT wallet_address FROM wallet_token_states
-     )
-     LIMIT 10`
-  );
+  try {
+    // Step 1: get wallets not yet processed
+    const { rows } = await query(
+      `
+      SELECT wallet_address, token_mint
+      FROM airdrop_recipients
+      WHERE wallet_address NOT IN (
+        SELECT wallet_address FROM wallet_token_states
+      )
+      LIMIT 10
+      `
+    );
 
-  for (const r of rows) {
-    const txs = await getWalletTransactions(r.wallet_address);
+    if (!rows.length) {
+      return NextResponse.json({
+        processed: 0,
+        message: "No wallets left to process"
+      });
+    }
 
-    await classifyWallet(r.wallet_address, r.token_mint);
+    // Step 2: process small batch (rate-limit safe)
+    for (const r of rows) {
+      const txs = await getWalletTransactions(r.wallet_address);
+
+      // store minimal state so dashboard can start showing data
+      await query(
+        `
+        INSERT INTO wallet_token_states(
+          wallet_address,
+          token_mint,
+          received_amount,
+          current_balance,
+          behavior,
+          last_classified_at
+        )
+        VALUES ($1,$2,0,0,'HELD',now())
+        ON CONFLICT (wallet_address, token_mint)
+        DO UPDATE SET last_classified_at = now()
+        `,
+        [r.wallet_address, r.token_mint]
+      );
+    }
+
+    return NextResponse.json({
+      processed: rows.length,
+      status: "ok"
+    });
+  } catch (error) {
+    console.error("PROCESS ERROR:", error);
+
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Unknown error"
+      },
+      { status: 500 }
+    );
   }
-
-  return NextResponse.json({
-    processed: rows.length
-  });
 }
