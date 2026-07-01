@@ -1,5 +1,8 @@
 import { Pool } from "pg";
-import { DEFAULT_DISTRIBUTOR_WALLET, MAX_WALLETS_PER_SCAN } from "@/lib/config";
+import {
+  DEFAULT_DISTRIBUTOR_WALLET,
+  MAX_WALLETS_PER_SCAN,
+} from "@/lib/config";
 
 const HELIUS_API_KEY = process.env.HELIUS_API_KEY!;
 
@@ -9,7 +12,7 @@ const pool = new Pool({
 
 /**
  * -------------------------
- * DB helper
+ * DB HELPER
  * -------------------------
  */
 async function query(text: string, params?: any[]) {
@@ -18,7 +21,7 @@ async function query(text: string, params?: any[]) {
 
 /**
  * -------------------------
- * SIMPLE RATE LIMITER
+ * RATE LIMITER (PREVENT HELIUS 429)
  * -------------------------
  */
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -39,7 +42,22 @@ async function rateLimitedFetch(url: string, options?: any) {
 
 /**
  * -------------------------
- * WALLET TRANSACTIONS (FULL PAGINATION)
+ * UPSERT WALLET (FIX FK ERROR)
+ * -------------------------
+ */
+async function upsertWallet(address: string) {
+  await query(
+    `INSERT INTO wallets(address)
+     VALUES ($1)
+     ON CONFLICT (address)
+     DO UPDATE SET last_seen_at = now()`,
+    [address]
+  );
+}
+
+/**
+ * -------------------------
+ * WALLET TX FETCH (PAGINATED)
  * -------------------------
  */
 export async function getWalletTransactions(wallet: string) {
@@ -53,23 +71,27 @@ export async function getWalletTransactions(wallet: string) {
 
     url.searchParams.set("api-key", HELIUS_API_KEY);
     url.searchParams.set("limit", "50");
+
     if (before) url.searchParams.set("before", before);
 
     const res = await rateLimitedFetch(url.toString());
     const text = await res.text();
 
     if (!res.ok) {
-      console.warn("Helius tx error:", text);
+      console.warn("Helius TX error:", text);
       break;
     }
 
     const batch = JSON.parse(text);
+
     if (!Array.isArray(batch) || batch.length === 0) break;
 
     all.push(...batch);
     before = batch[batch.length - 1]?.signature;
 
     if (batch.length < 50) break;
+
+    await sleep(200);
   }
 
   return all;
@@ -77,7 +99,7 @@ export async function getWalletTransactions(wallet: string) {
 
 /**
  * -------------------------
- * RECIPIENT DETECTION (AIRDROP CORE)
+ * RECIPIENT DETECTION (AIRDROP SOURCE OF TRUTH)
  * -------------------------
  */
 export async function getAirdropRecipients(
@@ -94,6 +116,7 @@ export async function getAirdropRecipients(
 
     url.searchParams.set("api-key", HELIUS_API_KEY);
     url.searchParams.set("limit", "50");
+
     if (before) url.searchParams.set("before", before);
 
     const res = await rateLimitedFetch(url.toString());
@@ -105,6 +128,7 @@ export async function getAirdropRecipients(
     }
 
     const txs = JSON.parse(text);
+
     if (!Array.isArray(txs) || txs.length === 0) break;
 
     for (const tx of txs) {
@@ -131,7 +155,7 @@ export async function getAirdropRecipients(
 
     before = txs[txs.length - 1]?.signature;
 
-    await sleep(400);
+    await sleep(300);
   }
 
   return Array.from(recipients.values());
@@ -139,10 +163,12 @@ export async function getAirdropRecipients(
 
 /**
  * -------------------------
- * WALLET CLASSIFICATION
+ * CLASSIFY WALLET
  * -------------------------
  */
 export async function classifyWallet(wallet: string, tokenMint: string) {
+  await upsertWallet(wallet);
+
   const txs = await getWalletTransactions(wallet);
 
   let sent = 0;
