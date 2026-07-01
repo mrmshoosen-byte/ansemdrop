@@ -261,15 +261,16 @@ export async function scanAirdrop(
 
   const limited = recipients.slice(0, MAX_WALLETS_PER_SCAN);
 
-  for (const r of limited) {
-    await storeRecipient(tokenMint, distributor, r);
+ for (const r of limited) {
+  await storeRecipient(tokenMint, distributor, r);
 
-    const txs = await getWalletTransactions(r.walletAddress);
-    await storeTransactions(r.walletAddress, txs);
+  const txs = await getWalletTransactions(r.walletAddress);
+  await storeTransactions(r.walletAddress, txs);
 
-    await classifyWallet(r.walletAddress, tokenMint);
-  }
+  await classifyWallet(r.walletAddress, tokenMint);
 
+  await new Promise((res) => setTimeout(res, 250)); // 👈 IMPORTANT
+}
   return {
     tokenMint,
     distributor,
