@@ -85,6 +85,8 @@ export async function POST() {
       );
     }
 
+    await new Promise((r) => setTimeout(r, 2000));
+
     return NextResponse.json({
       processed: rows.length,
       status: "ok"
