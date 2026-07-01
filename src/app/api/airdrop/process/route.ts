@@ -22,7 +22,7 @@ export async function POST() {
       WHERE wallet_address NOT IN (
         SELECT wallet_address FROM wallet_token_states
       )
-      LIMIT 10
+      LIMIT 2
       `
     );
 
