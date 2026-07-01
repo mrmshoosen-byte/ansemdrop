@@ -259,7 +259,16 @@ export async function scanAirdrop(
 ) {
   const recipients = await getAirdropRecipients(tokenMint, distributor);
 
-  const limited = recipients.slice(0, MAX_WALLETS_PER_SCAN);
+  const existing = await query(
+  `SELECT wallet_address FROM airdrop_recipients WHERE token_mint = $1 AND distributor_wallet = $2`,
+  [tokenMint, distributor]
+);
+
+const seen = new Set(existing.rows.map((r: any) => r.wallet_address));
+
+const limited = recipients.filter(
+  (r) => !seen.has(r.walletAddress)
+).slice(0, MAX_WALLETS_PER_SCAN);
 
  for (const r of limited) {
   await storeRecipient(tokenMint, distributor, r);
