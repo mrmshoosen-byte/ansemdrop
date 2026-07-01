@@ -40,7 +40,10 @@ async function heliusGet(url: string) {
  * WALLET FETCH (RECIPIENTS)
  * -------------------------
  */
-export async function getAirdropRecipients(tokenMint: string) {
+export async function getAirdropRecipients(
+  tokenMint: string,
+  distributor?: string
+) {
   const url = `https://api.helius.xyz/v0/token-metadata?api-key=${process.env.HELIUS_API_KEY}`;
 
   const res = await fetch(url);
