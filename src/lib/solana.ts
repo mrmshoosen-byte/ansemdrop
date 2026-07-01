@@ -40,13 +40,10 @@ async function heliusGet(url: string) {
  * WALLET FETCH (RECIPIENTS)
  * -------------------------
  */
-export async function getAirdropRecipients(
-  tokenMint: string,
-  distributor?: string
-) {
-  const url = `https://api.helius.xyz/v0/token-metadata?api-key=${process.env.HELIUS_API_KEY}`;
-
-  const res = await fetch(url);
+export async function getAirdropRecipients(tokenMint: string) {
+  const res = await fetch(
+    `https://api.helius.xyz/v0/token-metadata?api-key=${process.env.HELIUS_API_KEY}`
+  );
 
   const text = await res.text();
 
@@ -54,10 +51,9 @@ export async function getAirdropRecipients(
     throw new Error(`Helius error: ${text}`);
   }
 
-  const data = JSON.parse(text);
+  const json = JSON.parse(text);
 
-  // IMPORTANT: fallback-safe (prevents crashes)
-  const accounts = data?.accounts ?? [];
+  const accounts = json?.accounts ?? [];
 
   return accounts
     .filter((a: any) => a.mint === tokenMint)
