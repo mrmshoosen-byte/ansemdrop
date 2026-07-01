@@ -40,19 +40,28 @@ async function heliusGet(url: string) {
  * WALLET FETCH (RECIPIENTS)
  * -------------------------
  */
-export async function getAirdropRecipients(tokenMint: string, distributor: string) {
-  const data = await heliusGet(
-    `https://api.helius.xyz/v0/token-accounts?api-key=${HELIUS_API_KEY}`,
-  );
+export async function getAirdropRecipients(tokenMint: string) {
+  const url = `https://api.helius.xyz/v0/token-metadata?api-key=${process.env.HELIUS_API_KEY}`;
 
-  const accounts = Array.isArray(data) ? data : [];
+  const res = await fetch(url);
 
-  return accounts.map((acc: any) => ({
-    walletAddress: acc.owner,
-    amount: Number(acc.amount ?? 0),
-    signature: acc.signature ?? null,
-    receivedAt: new Date(),
-  }));
+  const text = await res.text();
+
+  if (!res.ok) {
+    throw new Error(`Helius error: ${text}`);
+  }
+
+  const data = JSON.parse(text);
+
+  // IMPORTANT: fallback-safe (prevents crashes)
+  const accounts = data?.accounts ?? [];
+
+  return accounts
+    .filter((a: any) => a.mint === tokenMint)
+    .map((a: any) => ({
+      walletAddress: a.owner,
+      amount: Number(a.amount ?? 0),
+    }));
 }
 
 /**
