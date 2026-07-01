@@ -7,77 +7,131 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
 
+/**
+ * -------------------------
+ * DB helper
+ * -------------------------
+ */
 async function query(text: string, params?: any[]) {
   return pool.query(text, params);
 }
 
 /**
  * -------------------------
- * HELIUS SAFE TX FETCH
+ * SIMPLE RATE LIMITER
  * -------------------------
  */
-export async function getWalletTransactions(wallet: string) {
-  try {
-    const res = await fetch(
-      `https://api.helius.xyz/v0/addresses/${wallet}/transactions?api-key=${HELIUS_API_KEY}&limit=50`
-    );
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-    const text = await res.text();
+let lastRequestTime = 0;
 
-    if (!res.ok) {
-      console.warn("Helius tx error:", text);
-      return [];
-    }
+async function rateLimitedFetch(url: string, options?: any) {
+  const now = Date.now();
+  const diff = now - lastRequestTime;
 
-    const data = JSON.parse(text);
-    return Array.isArray(data) ? data : [];
-  } catch (e) {
-    console.warn("Helius error ignored:", e);
-    return [];
+  if (diff < 350) {
+    await sleep(350 - diff);
   }
+
+  lastRequestTime = Date.now();
+  return fetch(url, options);
 }
 
 /**
  * -------------------------
- * FIXED RECIPIENT EXTRACTION (IMPORTANT)
+ * WALLET TRANSACTIONS (FULL PAGINATION)
  * -------------------------
- * This is the CORE FIX
+ */
+export async function getWalletTransactions(wallet: string) {
+  const all: any[] = [];
+  let before: string | undefined;
+
+  for (let i = 0; i < 20; i++) {
+    const url = new URL(
+      `https://api.helius.xyz/v0/addresses/${wallet}/transactions`
+    );
+
+    url.searchParams.set("api-key", HELIUS_API_KEY);
+    url.searchParams.set("limit", "50");
+    if (before) url.searchParams.set("before", before);
+
+    const res = await rateLimitedFetch(url.toString());
+    const text = await res.text();
+
+    if (!res.ok) {
+      console.warn("Helius tx error:", text);
+      break;
+    }
+
+    const batch = JSON.parse(text);
+    if (!Array.isArray(batch) || batch.length === 0) break;
+
+    all.push(...batch);
+    before = batch[batch.length - 1]?.signature;
+
+    if (batch.length < 50) break;
+  }
+
+  return all;
+}
+
+/**
+ * -------------------------
+ * RECIPIENT DETECTION (AIRDROP CORE)
+ * -------------------------
  */
 export async function getAirdropRecipients(
   tokenMint: string,
   distributor = DEFAULT_DISTRIBUTOR_WALLET
 ) {
-  const res = await fetch(
-    `https://api.helius.xyz/v0/addresses/${distributor}/transactions?api-key=${HELIUS_API_KEY}&limit=100`
-  );
-
-  const text = await res.text();
-
-  if (!res.ok) {
-    throw new Error(`Helius error: ${text}`);
-  }
-
-  const txs = JSON.parse(text);
-
   const recipients = new Map<string, any>();
+  let before: string | undefined;
 
-  for (const tx of txs ?? []) {
-    for (const t of tx.tokenTransfers ?? []) {
-      if (
-        t.mint === tokenMint &&
-        t.fromUserAccount === distributor &&
-        t.toUserAccount
-      ) {
-        const existing = recipients.get(t.toUserAccount);
+  for (let i = 0; i < 30; i++) {
+    const url = new URL(
+      `https://api.helius.xyz/v0/addresses/${distributor}/transactions`
+    );
 
-        recipients.set(t.toUserAccount, {
-          walletAddress: t.toUserAccount,
-          amount: (existing?.amount ?? 0) + Number(t.tokenAmount ?? 0),
-          signature: tx.signature,
-          receivedAt: tx.blockTime ? new Date(tx.blockTime * 1000) : null,
-        });
+    url.searchParams.set("api-key", HELIUS_API_KEY);
+    url.searchParams.set("limit", "50");
+    if (before) url.searchParams.set("before", before);
+
+    const res = await rateLimitedFetch(url.toString());
+    const text = await res.text();
+
+    if (!res.ok) {
+      console.warn("Helius recipient error:", text);
+      break;
+    }
+
+    const txs = JSON.parse(text);
+    if (!Array.isArray(txs) || txs.length === 0) break;
+
+    for (const tx of txs) {
+      for (const t of tx.tokenTransfers ?? []) {
+        if (
+          t.mint === tokenMint &&
+          t.fromUserAccount === distributor &&
+          t.toUserAccount
+        ) {
+          const existing = recipients.get(t.toUserAccount);
+
+          recipients.set(t.toUserAccount, {
+            walletAddress: t.toUserAccount,
+            amount:
+              (existing?.amount ?? 0) + Number(t.tokenAmount ?? 0),
+            signature: tx.signature,
+            receivedAt: tx.blockTime
+              ? new Date(tx.blockTime * 1000)
+              : null,
+          });
+        }
       }
     }
+
+    before = txs[txs.length - 1]?.signature;
+
+    await sleep(400);
   }
 
   return Array.from(recipients.values());
@@ -149,6 +203,7 @@ export async function scanAirdrop(
 
   for (const r of limited) {
     await classifyWallet(r.walletAddress, tokenMint);
+    await sleep(200);
   }
 
   return {
