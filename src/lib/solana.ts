@@ -1,82 +1,87 @@
 import { Pool } from "pg";
-import { DEFAULT_DISTRIBUTOR_WALLET, MAX_WALLETS_PER_SCAN } from "@/lib/config";
+import {
+  DEFAULT_DISTRIBUTOR_WALLET,
+  MAX_WALLETS_PER_SCAN,
+  MAX_WALLET_TX_PAGES_PER_SCAN,
+} from "@/lib/config";
 
-/**
- * ENV
- */
 const HELIUS_API_KEY = process.env.HELIUS_API_KEY!;
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
 
-/**
- * -------------------------
- * DB helper
- * -------------------------
- */
 async function query(text: string, params?: any[]) {
   return pool.query(text, params);
 }
 
 /**
  * -------------------------
- * HELIUS FETCH
+ * HELIUS: GET TRANSACTIONS
  * -------------------------
+ * Uses ONLY supported endpoint
  */
-async function heliusGet(url: string) {
-  const res = await fetch(url);
+async function getTransactions(address: string, before?: string) {
+  const url = new URL(
+    `https://api.helius.xyz/v0/addresses/${address}/transactions`
+  );
+
+  url.searchParams.append("api-key", HELIUS_API_KEY);
+  url.searchParams.append("limit", "50");
+  if (before) url.searchParams.append("before", before);
+
+  const res = await fetch(url.toString());
   const text = await res.text();
 
   if (!res.ok) {
     throw new Error(`Helius error: ${text}`);
   }
 
-  return JSON.parse(text);
+  const data = JSON.parse(text);
+  return Array.isArray(data) ? data : [];
 }
 
 /**
  * -------------------------
- * WALLET FETCH (RECIPIENTS)
+ * 1. FIND AIRDROP RECIPIENTS
  * -------------------------
+ * This is the CORE FIX
  */
 export async function getAirdropRecipients(
   tokenMint: string,
-  distributor?: string
-)  {
-  const res = await fetch(
-    `https://api.helius.xyz/v0/token-metadata?api-key=${process.env.HELIUS_API_KEY}`
-  );
+  distributor: string = DEFAULT_DISTRIBUTOR_WALLET
+) {
+  const recipients = new Map<
+    string,
+    { walletAddress: string; amount: number; signature: string }
+  >();
 
-  const text = await res.text();
+  let before: string | undefined;
 
-  if (!res.ok) {
-    throw new Error(`Helius error: ${text}`);
+  for (let i = 0; i < 20; i++) {
+    const txs = await getTransactions(distributor, before);
+    if (!txs.length) break;
+
+    for (const tx of txs) {
+      for (const t of tx.tokenTransfers ?? []) {
+        if (
+          t.mint === tokenMint &&
+          t.fromUserAccount === distributor &&
+          t.toUserAccount
+        ) {
+          recipients.set(t.toUserAccount, {
+            walletAddress: t.toUserAccount,
+            amount: Number(t.tokenAmount ?? 0),
+            signature: tx.signature,
+          });
+        }
+      }
+    }
+
+    before = txs.at(-1)?.signature;
   }
 
-  const json = JSON.parse(text);
-
-  const accounts = json?.accounts ?? [];
-
-  return accounts
-    .filter((a: any) => a.mint === tokenMint)
-    .map((a: any) => ({
-      walletAddress: a.owner,
-      amount: Number(a.amount ?? 0),
-    }));
-}
-
-/**
- * -------------------------
- * TRANSACTIONS
- * -------------------------
- */
-export async function getEnhancedTransactions(wallet: string) {
-  const data = await heliusGet(
-    `https://api.helius.xyz/v0/addresses/${wallet}/transactions?api-key=${HELIUS_API_KEY}&limit=50`
-  );
-
-  return Array.isArray(data) ? data : [];
+  return Array.from(recipients.values());
 }
 
 /**
@@ -96,10 +101,14 @@ async function upsertWallet(address: string) {
 
 /**
  * -------------------------
- * STORE RECIPIENTS
+ * STORE RECIPIENT
  * -------------------------
  */
-async function storeRecipient(tokenMint: string, distributor: string, r: any) {
+async function storeRecipient(
+  tokenMint: string,
+  distributor: string,
+  r: any
+) {
   await upsertWallet(r.walletAddress);
 
   await query(
@@ -111,23 +120,42 @@ async function storeRecipient(tokenMint: string, distributor: string, r: any) {
       amount,
       first_received_at
     )
-    VALUES($1,$2,$3,$4,$5,$6)
+    VALUES($1,$2,$3,$4,$5,now())
     ON CONFLICT (token_mint, wallet_address, distributor_wallet)
     DO UPDATE SET amount = EXCLUDED.amount`,
     [
       tokenMint,
       r.walletAddress,
       distributor,
-      r.signature ?? "unknown",
+      r.signature,
       r.amount,
-      r.receivedAt,
     ]
   );
 }
 
 /**
  * -------------------------
- * STORE TXS + TRANSFERS
+ * 2. WALLET HISTORY
+ * -------------------------
+ */
+export async function getWalletTransactions(wallet: string) {
+  let all: any[] = [];
+  let before: string | undefined;
+
+  for (let i = 0; i < MAX_WALLET_TX_PAGES_PER_SCAN; i++) {
+    const txs = await getTransactions(wallet, before);
+    if (!txs.length) break;
+
+    all.push(...txs);
+    before = txs.at(-1)?.signature;
+  }
+
+  return all;
+}
+
+/**
+ * -------------------------
+ * STORE TXS
  * -------------------------
  */
 async function storeTransactions(wallet: string, txs: any[]) {
@@ -177,7 +205,7 @@ async function storeTransactions(wallet: string, txs: any[]) {
  * -------------------------
  */
 async function classifyWallet(wallet: string, tokenMint: string) {
-  const txs = await getEnhancedTransactions(wallet);
+  const txs = await getWalletTransactions(wallet);
 
   let sent = 0;
   let received = 0;
@@ -193,12 +221,10 @@ async function classifyWallet(wallet: string, tokenMint: string) {
     }
   }
 
-  let behavior: "SOLD" | "HELD" | "ACCUMULATED" | "UNKNOWN" = "HELD";
+  let behavior: "SOLD" | "HELD" | "ACCUMULATED" = "HELD";
 
   if (sent > 0 && received === 0) behavior = "SOLD";
   else if (received > sent) behavior = "ACCUMULATED";
-
-  const currentBalance = received - sent;
 
   await query(
     `INSERT INTO wallet_token_states(
@@ -216,7 +242,7 @@ async function classifyWallet(wallet: string, tokenMint: string) {
       current_balance = EXCLUDED.current_balance,
       behavior = EXCLUDED.behavior,
       last_classified_at = now()`,
-    [wallet, tokenMint, received, currentBalance, behavior]
+    [wallet, tokenMint, received, received - sent, behavior]
   );
 
   return { wallet, behavior };
@@ -224,10 +250,13 @@ async function classifyWallet(wallet: string, tokenMint: string) {
 
 /**
  * -------------------------
- * MAIN SCAN
+ * MAIN SCAN (FIXED PIPELINE)
  * -------------------------
  */
-export async function scanAirdrop(tokenMint: string, distributor = DEFAULT_DISTRIBUTOR_WALLET) {
+export async function scanAirdrop(
+  tokenMint: string,
+  distributor: string = DEFAULT_DISTRIBUTOR_WALLET
+) {
   const recipients = await getAirdropRecipients(tokenMint, distributor);
 
   const limited = recipients.slice(0, MAX_WALLETS_PER_SCAN);
@@ -235,7 +264,7 @@ export async function scanAirdrop(tokenMint: string, distributor = DEFAULT_DISTR
   for (const r of limited) {
     await storeRecipient(tokenMint, distributor, r);
 
-    const txs = await getEnhancedTransactions(r.walletAddress);
+    const txs = await getWalletTransactions(r.walletAddress);
     await storeTransactions(r.walletAddress, txs);
 
     await classifyWallet(r.walletAddress, tokenMint);
